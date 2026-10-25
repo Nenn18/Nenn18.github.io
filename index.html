@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>家計簿アプリ</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="app-icon.PNG">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 15px; padding-bottom: 90px; background-color: #f2f2f7; }
+    .screen { display: none; }
+    .screen.active { display: block; }
+    .card { background: #fff; padding: 15px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); box-sizing: border-box; }
+
+    /* 各画面の見出し（iPhone風の大きなタイトル） */
+    .page-header { display: flex; align-items: flex-end; justify-content: space-between; padding: 12px 4px 14px; }
+    .page-eyebrow { font-size: 13px; font-weight: 600; color: #8e8e93; margin-bottom: 2px; }
+    .page-title { margin: 0; font-size: 32px; font-weight: 800; letter-spacing: 0.5px; color: #1c1c1e; line-height: 1.15; }
+    .page-icon { width: 40px; height: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #fff; background: var(--c); box-shadow: 0 4px 10px color-mix(in srgb, var(--c) 35%, transparent); }
+    .page-icon svg { width: 22px; height: 22px; }
+    
+    input, select, .primary-btn { 
+      font-family: inherit; width: 100%; margin: 8px 0 16px; padding: 12px; 
+      box-sizing: border-box; border-radius: 8px; border: 1px solid #ccc; font-size: 16px; 
+    }
+    input[type="date"], input[type="month"] { -webkit-appearance: none; appearance: none; background-color: #fff; }
+    .primary-btn { background-color: #007aff; color: white; border: none; font-weight: bold; }
+
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; table-layout: fixed; word-wrap: break-word; }
+    th, td { border-bottom: 1px solid #eee; padding: 10px 2px; text-align: left; vertical-align: middle; }
+    
+    /* 履歴の編集・削除ボタン（丸いアイコンボタン） */
+    .icon-btns { display: flex; gap: 6px; flex-shrink: 0; }
+    .icon-btn {
+      width: 30px; height: 30px; padding: 0; margin: 0; border: none; border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+      background: #ececf0; color: #636366; transition: transform 0.1s, background 0.15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .icon-btn svg { width: 15px; height: 15px; }
+    .icon-btn:active { transform: scale(0.9); }
+    .icon-btn.edit:active { background: #dbe8ff; color: #007aff; }
+    .icon-btn.delete { background: #fdecec; color: #ff3b30; }
+    .icon-btn.delete:active { background: #ffd6d4; }
+
+    .segmented-control { display: flex; background-color: #e3e3e8; border-radius: 8px; padding: 3px; margin-bottom: 15px; }
+    .segmented-control button { flex: 1; background: transparent; border: none; border-radius: 6px; padding: 8px 0; margin: 0; font-size: 14px; color: #000; }
+    .segmented-control button.active { background-color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.12); font-weight: bold; }
+
+    .nav { position: fixed; bottom: 0; left: 0; width: 100%; display: flex; background: #f8f8f8; border-top: 1px solid #ddd; padding-bottom: env(safe-area-inset-bottom); z-index: 1000; }
+    .nav button { flex: 1; padding: 25px 0 35px 0; border: none; background: transparent; font-size: 13px; color: #999; margin: 0; border-radius: 0; }
+    .nav button.active { color: #007aff; font-weight: bold; }
+
+    .secondary-btn { background: #eee; border: none; padding: 10px; border-radius: 6px; font-size: 13px; margin-top: 10px; width: 100%; color: #666; font-weight: bold; cursor: pointer; }
+
+    /* 履歴：日付ごとのグループ表示 */
+    .day-group { border-bottom: 1px solid #eee; }
+    .day-header { display: flex; align-items: center; gap: 8px; padding: 12px 4px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+    .day-header:active { background: #f5f5f7; }
+    .day-date { font-weight: bold; font-size: 15px; min-width: 78px; }
+    .day-date .wd { font-size: 12px; font-weight: normal; color: #888; }
+    .day-date .wd.sat { color: #007aff; }
+    .day-date .wd.sun { color: #ff3b30; }
+    .day-count { flex: 1; font-size: 12px; color: #888; }
+    .day-total { text-align: right; font-size: 14px; font-weight: bold; line-height: 1.4; }
+    .chevron { color: #c7c7cc; font-size: 12px; transition: transform 0.2s; }
+    .day-group.open .chevron { transform: rotate(90deg); }
+    .day-detail { display: none; background: #f9f9fb; border-radius: 8px; margin: 0 0 12px; }
+    .day-group.open .day-detail { display: block; }
+    .detail-item { display: flex; align-items: center; gap: 8px; padding: 10px; border-bottom: 1px solid #eee; font-size: 13px; }
+    .detail-item:last-child { border-bottom: none; }
+    .detail-main { flex: 1; min-width: 0; }
+    .detail-sub { font-size: 11px; color: #888; margin-top: 2px; word-break: break-all; }
+    .detail-amount { font-weight: bold; white-space: nowrap; }
+    .badge-credit { display: inline-block; background: #e8f0ff; color: #007aff; font-size: 10px; padding: 1px 6px; border-radius: 4px; margin-left: 4px; vertical-align: middle; }
+    .card-summary { background: #f2f7ff; border-radius: 8px; padding: 10px 12px; font-size: 12px; color: #333; margin-bottom: 10px; line-height: 1.6; }
+    .empty-msg { text-align: center; color: #aaa; font-size: 13px; padding: 30px 0; }
+
+    /* 編集モーダル（下から出てくるシート） */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.35); z-index: 2000; align-items: flex-end; justify-content: center; }
+    .modal-overlay.show { display: flex; }
+    .modal-sheet { background: #fff; width: 100%; max-width: 500px; max-height: 90vh; overflow-y: auto; border-radius: 14px 14px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); box-sizing: border-box; }
+    .modal-sheet h3 { margin: 0 0 8px; font-size: 17px; text-align: center; }
+    .modal-sheet label { font-size: 12px; color: #666; }
+    .modal-sheet input, .modal-sheet select { margin: 4px 0 10px; padding: 10px; }
+    .modal-row { display: flex; gap: 8px; }
+    .modal-row > div { flex: 1; min-width: 0; }
+    .modal-buttons { display: flex; gap: 8px; margin-top: 6px; }
+    .modal-buttons button { flex: 1; margin: 0; }
+    .cancel-btn { font-family: inherit; padding: 12px; border-radius: 8px; border: none; background: #eee; color: #333; font-size: 16px; font-weight: bold; }
+  </style>
+</head>
+<body>
+
+  <!-- 入力画面 -->
+  <div id="screen-input" class="screen active">
+    <header class="page-header">
+      <div>
+        <div class="page-eyebrow" id="input-eyebrow"></div>
+        <h1 class="page-title">入力</h1>
+      </div>
+      <div class="page-icon" style="--c: #007aff;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      </div>
+    </header>
+    <div class="card">
+    <label style="font-size: 12px; color: #666;">日付</label>
+    <input type="date" id="date" onchange="updateWithdrawHint()">
+    <label style="font-size: 12px; color: #666;">収支タイプ</label>
+    <select id="type" onchange="updateCategoryOptions()">
+      <option value="支出">支出</option>
+      <option value="収入">収入</option>
+    </select>
+    <label style="font-size: 12px; color: #666;">カテゴリー</label>
+    <select id="category"></select>
+    <!-- 支払方法（支出のときだけ表示） -->
+    <div id="payment-wrap">
+      <label style="font-size: 12px; color: #666;">支払方法</label>
+      <select id="payment" onchange="updateWithdrawHint()">
+        <option value="cash">現金・口座</option>
+        <option value="credit">クレジットカード</option>
+      </select>
+      <div id="withdraw-hint" style="font-size: 12px; color: #007aff; margin: -8px 0 16px;"></div>
+    </div>
+    <input type="text" id="memo" placeholder="メモ（任意）">
+    <input type="number" id="amount" placeholder="金額を入力 (円)">
+    <button class="primary-btn" onclick="addRecord()">追加する</button>
+    </div>
+  </div>
+
+  <!-- 履歴画面 -->
+  <div id="screen-history" class="screen">
+    <header class="page-header">
+      <div>
+        <div class="page-eyebrow">日付ごとの記録</div>
+        <h1 class="page-title">履歴</h1>
+      </div>
+      <div class="page-icon" style="--c: #ff9500;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+      </div>
+    </header>
+    <div class="card">
+    <label style="font-size: 12px; color: #666;">表示する月</label>
+    <input type="month" id="history-month" onchange="updateTable()">
+    
+    <div style="display: flex; gap: 10px; margin-top: 15px; margin-bottom: 20px;">
+      <div style="width: 50%;"><canvas id="historyExpenseChart"></canvas></div>
+      <div style="width: 50%;"><canvas id="historyIncomeChart"></canvas></div>
+    </div>
+
+    <div class="segmented-control">
+      <button id="subtab-all" class="active" onclick="switchTableTab('すべて')">すべて</button>
+      <button id="subtab-expense" onclick="switchTableTab('支出')">支出</button>
+      <button id="subtab-income" onclick="switchTableTab('収入')">収入</button>
+    </div>
+    <!-- その月のクレジットカード利用額・引き落とし額 -->
+    <div id="card-summary" class="card-summary" style="display: none;"></div>
+    <!-- 日付ごとのグループ（行をタップで詳細を開閉） -->
+    <div id="recordList"></div>
+    </div>
+  </div>
+
+  <!-- レポート画面 -->
+  <div id="screen-report" class="screen">
+    <header class="page-header">
+      <div>
+        <div class="page-eyebrow">貯金と収支のまとめ</div>
+        <h1 class="page-title">レポート</h1>
+      </div>
+      <div class="page-icon" style="--c: #34c759;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 20V12M12 20V5M18 20v-9"/></svg>
+      </div>
+    </header>
+    <div class="card">
+    <div style="margin-bottom: 20px; text-align: center; padding: 10px 0;">
+      <div style="font-size: 14px; color: #666; margin-bottom: 5px;">現在の貯金額</div>
+      <div>
+        <span id="current-savings" style="font-size: 2.5em; font-weight: bold; color: #333;">0</span>
+        <span style="font-size: 16px; font-weight: bold; color: #333;">円</span>
+      </div>
+      <div id="savings-diff" style="font-size: 15px; font-weight: bold; margin-top: 5px;"></div>
+      <!-- まだ引き落とされていないカード利用額 -->
+      <div id="pending-credit" style="font-size: 13px; color: #666; margin-top: 8px; line-height: 1.6;"></div>
+    </div>
+    <div id="charts-container" style="display: flex; flex-direction: column; gap: 20px;">
+      <div style="text-align: center; font-size: 14px; font-weight: bold;">累計貯金額</div>
+      <div><canvas id="lineChart"></canvas></div>
+      <div style="text-align: center; font-size: 14px; font-weight: bold; margin-top: 10px;">月別 合計収支</div>
+      <div><canvas id="monthlyBarChart"></canvas></div>
+      <div style="text-align: center; font-size: 14px; font-weight: bold; margin-top: 10px;">今月の内訳</div>
+      <div style="display: flex; gap: 10px;">
+        <div style="width: 50%;"><canvas id="expenseChart"></canvas></div>
+        <div style="width: 50%;"><canvas id="incomeChart"></canvas></div>
+      </div>
+    </div>
+    
+    <hr style="border: none; border-top: 1px solid #eee; margin-top: 30px;">
+    <!-- クレジットカードの締め日・引き落とし日の設定 -->
+    <div style="font-size: 14px; font-weight: bold; margin: 15px 0 5px;">💳 クレジットカード設定</div>
+    <div style="display: flex; gap: 8px;">
+      <div style="flex: 1;">
+        <label style="font-size: 12px; color: #666;">締め日</label>
+        <select id="card-closing"></select>
+      </div>
+      <div style="flex: 1;">
+        <label style="font-size: 12px; color: #666;">引き落とし月</label>
+        <select id="card-offset">
+          <option value="1">翌月</option>
+          <option value="2">翌々月</option>
+        </select>
+      </div>
+      <div style="flex: 1;">
+        <label style="font-size: 12px; color: #666;">引き落とし日</label>
+        <select id="card-payday"></select>
+      </div>
+    </div>
+    <button class="secondary-btn" style="margin-top: 0;" onclick="saveCardSettings()">設定を保存</button>
+
+    <hr style="border: none; border-top: 1px solid #eee; margin-top: 20px;">
+    <div style="padding-bottom: 20px;">
+      <button class="secondary-btn" onclick="exportData()">💾 データをファイルに保存 (Backup)</button>
+      <button class="secondary-btn" style="margin-top: 5px;" onclick="importData()">📂 ファイルを読み込む (Restore)</button>
+    </div>
+    </div>
+  </div>
+
+  <!-- 編集モーダル（入力タブの小さい版。背景タップで閉じる） -->
+  <div id="edit-modal" class="modal-overlay" onclick="if (event.target === this) closeEditModal()">
+    <div class="modal-sheet">
+      <h3>記録を編集</h3>
+      <div class="modal-row">
+        <div>
+          <label>日付</label>
+          <input type="date" id="edit-date" onchange="onEditDateOrPaymentChange()">
+        </div>
+        <div>
+          <label>収支タイプ</label>
+          <select id="edit-type" onchange="onEditTypeChange()">
+            <option value="支出">支出</option>
+            <option value="収入">収入</option>
+          </select>
+        </div>
+      </div>
+      <label>カテゴリー</label>
+      <select id="edit-category"></select>
+      <!-- 支払方法・引き落とし日（支出のときだけ表示） -->
+      <div id="edit-payment-wrap" class="modal-row">
+        <div>
+          <label>支払方法</label>
+          <select id="edit-payment" onchange="onEditDateOrPaymentChange()">
+            <option value="cash">現金・口座</option>
+            <option value="credit">クレジットカード</option>
+          </select>
+        </div>
+        <div id="edit-withdraw-wrap">
+          <label>引き落とし日</label>
+          <input type="date" id="edit-withdraw">
+        </div>
+      </div>
+      <label>メモ</label>
+      <input type="text" id="edit-memo" placeholder="メモ（任意）">
+      <label>金額 (円)</label>
+      <input type="number" id="edit-amount" inputmode="numeric">
+      <div class="modal-buttons">
+        <button class="cancel-btn" onclick="closeEditModal()">キャンセル</button>
+        <button class="primary-btn" onclick="saveEdit()">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="nav">
+    <button id="nav-input" class="active" onclick="switchScreen('input')">入力</button>
+    <button id="nav-history" onclick="switchScreen('history')">履歴</button>
+    <button id="nav-report" onclick="switchScreen('report')">レポート</button>
+  </div>
+
+  <script>
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+
+    const todayDate = new Date();
+    const yyyy = todayDate.getFullYear();
+    const mm = String(todayDate.getMonth() + 1).padStart(2, '0');
+    const dd = String(todayDate.getDate()).padStart(2, '0');
+    
+    document.getElementById('date').value = `${yyyy}-${mm}-${dd}`;
+    document.getElementById('history-month').value = `${yyyy}-${mm}`;
+    // 入力画面の見出しの上に今日の日付を表示（例: 10月25日 日曜日）
+    document.getElementById('input-eyebrow').textContent =
+      `${todayDate.getMonth() + 1}月${todayDate.getDate()}日 ${'日月火水木金土'[todayDate.getDay()]}曜日`;
+    
+    const categoriesData = {
+      '支出': ['食費', '交通費', 'デート', '日用品', '趣味', 'プレゼント', 'サブスク', '投資信託', '旅行', 'その他'],
+      '収入': ['給与', 'その他']
+    };
+
+    const categoryColors = {
+      '食費': '#ff3b30',
+      '交通費': '#ff9500',
+      'デート': '#ff2d55',
+      '日用品': '#ffcc00',
+      '趣味': '#5ac8fa',
+      'プレゼント': '#af52de',
+      'サブスク': '#007aff',
+      '投資信託': '#5856d6',
+      '旅行': '#00c7be', // ミント色（他のカテゴリーと被らない色）
+      '給与': '#34c759',
+      'その他': '#8e8e93'
+    };
+
+    // ===== 日付ユーティリティ =====
+    const pad2 = n => String(n).padStart(2, '0');
+    const fmtDate = (y, m0, d) => `${y}-${pad2(m0 + 1)}-${pad2(d)}`; // m0は0始まりの月
+    const lastDayOf = (y, m0) => new Date(y, m0 + 1, 0).getDate();
+    const todayStr = () => { const t = new Date(); return fmtDate(t.getFullYear(), t.getMonth(), t.getDate()); };
+
+    // HTMLに埋め込む文字列のエスケープ（メモに<などが入っても崩れないように）
+    const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+    // ===== クレジットカード設定 =====
+    // closingDay / payDay: 1〜28 または 99(=末日)、payMonthOffset: 締め月から何ヶ月後に引き落とすか
+    const defaultCardSettings = { closingDay: 99, payMonthOffset: 1, payDay: 27 };
+    function getCardSettings() {
+      try { return { ...defaultCardSettings, ...(JSON.parse(localStorage.getItem('cardSettings')) || {}) }; }
+      catch (e) { return { ...defaultCardSettings }; }
+    }
+
+    // 利用日から引き落とし予定日を計算する
+    function calcWithdrawDate(dateStr) {
+      const s = getCardSettings();
+      const [y, m, d] = dateStr.split('-').map(Number);
+      let closeMonth = m - 1;
+      const closeDay = s.closingDay === 99 ? lastDayOf(y, closeMonth) : s.closingDay;
+      if (d > closeDay) closeMonth += 1; // 締め日を過ぎたら翌月締め扱い
+      const payBase = new Date(y, closeMonth + s.payMonthOffset, 1);
+      const py = payBase.getFullYear(), pm = payBase.getMonth();
+      const pd = s.payDay === 99 ? lastDayOf(py, pm) : Math.min(s.payDay, lastDayOf(py, pm));
+      return fmtDate(py, pm, pd);
+    }
+
+    // お金が実際に出ていく日（カードは引き落とし日、それ以外は入力日）
+    const cashDate = r => (r.payment === 'credit' && r.withdrawDate) ? r.withdrawDate : r.date;
+
+    function initCardSettingsUI() {
+      const dayOptions = [...Array(28)].map((_, i) => `<option value="${i + 1}">${i + 1}日</option>`).join('') + '<option value="99">末日</option>';
+      document.getElementById('card-closing').innerHTML = dayOptions;
+      document.getElementById('card-payday').innerHTML = dayOptions;
+      const s = getCardSettings();
+      document.getElementById('card-closing').value = s.closingDay;
+      document.getElementById('card-offset').value = s.payMonthOffset;
+      document.getElementById('card-payday').value = s.payDay;
+    }
+
+    function saveCardSettings() {
+      const s = {
+        closingDay: parseInt(document.getElementById('card-closing').value, 10),
+        payMonthOffset: parseInt(document.getElementById('card-offset').value, 10),
+        payDay: parseInt(document.getElementById('card-payday').value, 10)
+      };
+      localStorage.setItem('cardSettings', JSON.stringify(s));
+      // 既存のカード記録の引き落とし日を新しい設定で再計算するか確認
+      if (confirm('設定を保存しました。\n既存のクレジットカード記録の引き落とし日も再計算しますか？')) {
+        const records = JSON.parse(localStorage.getItem('records')) || [];
+        records.forEach(r => { if (r.payment === 'credit') r.withdrawDate = calcWithdrawDate(r.date); });
+        localStorage.setItem('records', JSON.stringify(records));
+      }
+      updateWithdrawHint();
+      updateResult();
+    }
+
+    // 入力画面：カード選択時に引き落とし予定日を表示
+    function updateWithdrawHint() {
+      const hint = document.getElementById('withdraw-hint');
+      const date = document.getElementById('date').value;
+      const isCredit = document.getElementById('payment').value === 'credit';
+      hint.textContent = (isCredit && date) ? `💳 引き落とし予定日: ${calcWithdrawDate(date)}` : '';
+    }
+
+    function updateCategoryOptions() {
+      const type = document.getElementById('type').value;
+      const categorySelect = document.getElementById('category');
+      categorySelect.innerHTML = '';
+      categoriesData[type].forEach(cat => {
+        const option = document.createElement('option');
+        option.value = cat;
+        option.textContent = cat;
+        categorySelect.appendChild(option);
+      });
+      // 支払方法は支出のときだけ表示
+      document.getElementById('payment-wrap').style.display = type === '支出' ? 'block' : 'none';
+    }
+    updateCategoryOptions();
+    initCardSettingsUI();
+
+    let lineChart, monthlyBarChart, expenseChart, incomeChart, historyExpenseChart, historyIncomeChart;
+
+    Chart.register({
+      id: 'centerText',
+      afterDraw(chart, args, options) {
+        if (!options.text) return;
+        const { ctx, chartArea: { top, height, width, left } } = chart;
+        
+        let centerX = left + width / 2;
+        let centerY = top + height / 2;
+        let innerRadius = (Math.min(width, height) / 2) * 0.7; 
+        
+        const meta = chart.getDatasetMeta(0);
+        if (meta && meta.data && meta.data.length > 0) {
+          centerX = meta.data[0].x;
+          centerY = meta.data[0].y;
+          innerRadius = meta.data[0].innerRadius;
+        }
+        
+        ctx.save();
+        const maxTextWidth = innerRadius * 2 * 0.85;
+        const baseFontSize = 20;
+        ctx.font = `bold ${baseFontSize}px sans-serif`;
+        const textWidth = ctx.measureText(options.text).width;
+        
+        let optimalFontSize = Math.floor((maxTextWidth / textWidth) * baseFontSize);
+        optimalFontSize = Math.min(optimalFontSize, 22); 
+        optimalFontSize = Math.max(optimalFontSize, 9);  
+        
+        ctx.font = `bold ${optimalFontSize}px sans-serif`;
+        ctx.fillStyle = '#666';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        ctx.fillText(options.text, centerX, centerY);
+        ctx.restore();
+      }
+    });
+
+    function switchScreen(id) {
+      document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+      document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
+      document.getElementById('screen-' + id).classList.add('active');
+      document.getElementById('nav-' + id).classList.add('active');
+      if (id === 'history') updateTable();
+      if (id === 'report') updateResult();
+    }
+
+    let currentTableMode = 'すべて';
+    const openDates = new Set(); // 詳細を開いている日付（再描画しても開いたままにする）
+    function toggleDay(date) {
+      if (openDates.has(date)) openDates.delete(date); else openDates.add(date);
+      document.querySelector(`.day-group[data-date="${date}"]`)?.classList.toggle('open', openDates.has(date));
+    }
+
+    function switchTableTab(mode) {
+      currentTableMode = mode;
+      document.getElementById('subtab-all').classList.toggle('active', mode === 'すべて');
+      document.getElementById('subtab-expense').classList.toggle('active', mode === '支出');
+      document.getElementById('subtab-income').classList.toggle('active', mode === '収入');
+      updateTable();
+    }
+
+    function addRecord() {
+      const date = document.getElementById('date').value;
+      const type = document.getElementById('type').value;
+      const category = document.getElementById('category').value;
+      const memo = document.getElementById('memo').value;
+      const amount = parseInt(document.getElementById('amount').value, 10);
+      if (!date || isNaN(amount)) return alert('入力内容を確認してください');
+      // 収入は常に現金扱い。カード払いは引き落とし予定日も保存しておく
+      const payment = type === '支出' ? document.getElementById('payment').value : 'cash';
+      const rec = { id: Date.now(), date, type, category, memo, amount, payment };
+      if (payment === 'credit') rec.withdrawDate = calcWithdrawDate(date);
+      const records = JSON.parse(localStorage.getItem('records')) || [];
+      records.push(rec);
+      localStorage.setItem('records', JSON.stringify(records));
+      document.getElementById('memo').value = '';
+      document.getElementById('amount').value = '';
+      alert(payment === 'credit' ? `追加しました！\n（引き落とし予定日: ${rec.withdrawDate}）` : '追加しました！');
+      updateResult();
+    }
+
+    // 編集・削除ボタン用の線画アイコン（SVG）
+    const ICON_EDIT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+    const ICON_TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>';
+
+    // ===== 編集モーダル =====
+    let editingId = null;
+
+    // カテゴリーの選択肢を作る（一覧にない古いカテゴリーも消えないように残す）
+    function fillEditCategories(type, current) {
+      const sel = document.getElementById('edit-category');
+      const cats = [...categoriesData[type]];
+      if (current && !cats.includes(current)) cats.push(current);
+      sel.innerHTML = cats.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+      if (current && cats.includes(current)) sel.value = current;
+    }
+
+    // 支出のときだけ支払方法、カードのときだけ引き落とし日を表示
+    function refreshEditPaymentUI() {
+      const isExpense = document.getElementById('edit-type').value === '支出';
+      const isCredit = document.getElementById('edit-payment').value === 'credit';
+      document.getElementById('edit-payment-wrap').style.display = isExpense ? 'flex' : 'none';
+      // 非表示時は場所ごと消して、支払方法が横幅いっぱいに広がるようにする
+      document.getElementById('edit-withdraw-wrap').style.display = (isExpense && isCredit) ? 'block' : 'none';
+    }
+
+    function onEditTypeChange() {
+      fillEditCategories(document.getElementById('edit-type').value, null);
+      refreshEditPaymentUI();
+    }
+
+    // 日付や支払方法を変えたら、引き落とし日を設定から自動で計算し直す（手動で上書きも可）
+    function onEditDateOrPaymentChange() {
+      const date = document.getElementById('edit-date').value;
+      if (document.getElementById('edit-payment').value === 'credit' && date) {
+        document.getElementById('edit-withdraw').value = calcWithdrawDate(date);
+      }
+      refreshEditPaymentUI();
+    }
+
+    function editRecord(id) {
+      const records = JSON.parse(localStorage.getItem('records')) || [];
+      const r = records.find(r => r.id === id);
+      if (!r) return;
+      editingId = id;
+      // 今の値をフォームに入れる
+      document.getElementById('edit-date').value = r.date;
+      document.getElementById('edit-type').value = r.type;
+      fillEditCategories(r.type, r.category);
+      document.getElementById('edit-payment').value = r.payment === 'credit' ? 'credit' : 'cash';
+      document.getElementById('edit-withdraw').value = r.payment === 'credit' ? (r.withdrawDate || calcWithdrawDate(r.date)) : '';
+      document.getElementById('edit-memo').value = r.memo || '';
+      document.getElementById('edit-amount').value = r.amount;
+      refreshEditPaymentUI();
+      document.getElementById('edit-modal').classList.add('show');
+    }
+
+    function closeEditModal() {
+      document.getElementById('edit-modal').classList.remove('show');
+      editingId = null;
+    }
+
+    function saveEdit() {
+      const records = JSON.parse(localStorage.getItem('records')) || [];
+      const r = records.find(r => r.id === editingId);
+      if (!r) return closeEditModal();
+
+      const date = document.getElementById('edit-date').value;
+      const type = document.getElementById('edit-type').value;
+      const amount = parseInt(document.getElementById('edit-amount').value, 10);
+      const payment = type === '支出' ? document.getElementById('edit-payment').value : 'cash';
+      const withdrawDate = document.getElementById('edit-withdraw').value;
+      if (!date || isNaN(amount)) return alert('入力内容を確認してください');
+      if (payment === 'credit' && !withdrawDate) return alert('引き落とし日を入力してください');
+
+      Object.assign(r, { date, type, category: document.getElementById('edit-category').value, memo: document.getElementById('edit-memo').value, amount, payment });
+      if (payment === 'credit') r.withdrawDate = withdrawDate;
+      else delete r.withdrawDate; // 現金に変えたら引き落とし日は不要
+
+      localStorage.setItem('records', JSON.stringify(records));
+      openDates.add(date); // 日付を変えても、移動先の日の詳細を開いておく
+      closeEditModal();
+      updateTable();
+      updateResult();
+    }
+
+    function deleteRecord(id) {
+      if (!confirm('削除しますか？')) return;
+      let records = JSON.parse(localStorage.getItem('records')) || [];
+      records = records.filter(r => r.id !== id);
+      localStorage.setItem('records', JSON.stringify(records));
+      updateTable();
+      updateResult();
+    }
+
+    function updateTable() {
+      let records = JSON.parse(localStorage.getItem('records')) || [];
+      records.sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
+      const selectedMonth = document.getElementById('history-month').value;
+      const listElem = document.getElementById('recordList');
+      listElem.innerHTML = '';
+
+      const historyExpenseData = {};
+      let historyExpenseTotal = 0;
+      const historyIncomeData = {};
+      let historyIncomeTotal = 0;
+      const dayGroups = {}; // { 'YYYY-MM-DD': [record, ...] }
+      let creditUsed = 0;      // この月のカード利用額（利用日ベース）
+      let creditWithdrawn = 0; // この月に引き落とされるカード額（引き落とし日ベース）
+
+      records.forEach(r => {
+        if (r.payment === 'credit' && selectedMonth && cashDate(r).startsWith(selectedMonth)) creditWithdrawn += r.amount;
+        if (selectedMonth && !r.date.startsWith(selectedMonth)) return;
+
+        // 円グラフは「使った日」ベースで集計（カードも利用日に計上）
+        if (r.type === '支出') {
+          historyExpenseData[r.category] = (historyExpenseData[r.category] || 0) + r.amount;
+          historyExpenseTotal += r.amount;
+          if (r.payment === 'credit') creditUsed += r.amount;
+        } else {
+          historyIncomeData[r.category] = (historyIncomeData[r.category] || 0) + r.amount;
+          historyIncomeTotal += r.amount;
+        }
+
+        if (currentTableMode !== 'すべて' && r.type !== currentTableMode) return;
+        (dayGroups[r.date] = dayGroups[r.date] || []).push(r);
+      });
+
+      // カード利用のサマリー（どちらかがある月だけ表示）
+      const summaryElem = document.getElementById('card-summary');
+      if (creditUsed || creditWithdrawn) {
+        summaryElem.style.display = 'block';
+        summaryElem.innerHTML = `💳 この月のカード利用: <b>${creditUsed.toLocaleString()}円</b><br>🏦 この月の引き落とし: <b>${creditWithdrawn.toLocaleString()}円</b>`;
+      } else {
+        summaryElem.style.display = 'none';
+      }
+
+      // 日付ごとにまとめて表示（新しい日付が上）
+      const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
+      const dates = Object.keys(dayGroups).sort().reverse();
+      if (dates.length === 0) listElem.innerHTML = '<div class="empty-msg">この月の記録はありません</div>';
+
+      dates.forEach(date => {
+        const items = dayGroups[date];
+        const [y, m, d] = date.split('-').map(Number);
+        const wd = new Date(y, m - 1, d).getDay();
+        const wdClass = wd === 0 ? 'sun' : wd === 6 ? 'sat' : '';
+        const expense = items.filter(r => r.type === '支出').reduce((s, r) => s + r.amount, 0);
+        const income = items.filter(r => r.type === '収入').reduce((s, r) => s + r.amount, 0);
+        const hasCredit = items.some(r => r.payment === 'credit');
+
+        // 日付行の右側：その日の支出・収入の合計
+        const totals = [];
+        if (expense) totals.push(`<div style="color:#ff3b30;">${hasCredit ? '💳 ' : ''}-${expense.toLocaleString()}</div>`);
+        if (income) totals.push(`<div style="color:#34c759;">+${income.toLocaleString()}</div>`);
+
+        // 詳細：その日の明細をすべて表示
+        const detailHtml = items.map(r => {
+          const color = r.type === '支出' ? '#ff3b30' : '#34c759';
+          const sign = r.type === '支出' ? '-' : '+';
+          const badge = r.payment === 'credit' ? '<span class="badge-credit">💳 カード</span>' : '';
+          const subs = [];
+          if (r.memo) subs.push(escapeHtml(r.memo));
+          if (r.payment === 'credit') subs.push(`引き落とし予定: ${cashDate(r).substring(5).replace('-', '/')}${cashDate(r) <= todayStr() ? '（済）' : ''}`);
+          else if (r.type === '支出') subs.push('現金・口座');
+          return `
+            <div class="detail-item">
+              <span style="width:8px; height:8px; border-radius:50%; background:${categoryColors[r.category] || '#ccc'}; flex-shrink:0;"></span>
+              <div class="detail-main">
+                <div>${escapeHtml(r.category)}${badge}</div>
+                ${subs.map(s => `<div class="detail-sub">${s}</div>`).join('')}
+              </div>
+              <div class="detail-amount" style="color:${color};">${sign}${r.amount.toLocaleString()}</div>
+              <div class="icon-btns">
+                <button onclick="editRecord(${r.id})" class="icon-btn edit" aria-label="編集">${ICON_EDIT}</button>
+                <button onclick="deleteRecord(${r.id})" class="icon-btn delete" aria-label="削除">${ICON_TRASH}</button>
+              </div>
+            </div>`;
+        }).join('');
+
+        const group = document.createElement('div');
+        group.className = 'day-group' + (openDates.has(date) ? ' open' : '');
+        group.dataset.date = date;
+        group.innerHTML = `
+          <div class="day-header" onclick="toggleDay('${date}')">
+            <div class="day-date">${m}/${d} <span class="wd ${wdClass}">(${weekdays[wd]})</span></div>
+            <div class="day-count">${items.length}件</div>
+            <div class="day-total">${totals.join('')}</div>
+            <div class="chevron">▶</div>
+          </div>
+          <div class="day-detail">${detailHtml}</div>
+        `;
+        listElem.appendChild(group);
+      });
+
+      if (historyExpenseChart) historyExpenseChart.destroy();
+      if (historyIncomeChart) historyIncomeChart.destroy();
+
+      const createD = (id, data, total, type, title) => {
+        const labels = [];
+        const values = [];
+        const bgColors = [];
+
+        categoriesData[type].forEach(cat => {
+          if (data[cat]) {
+            labels.push(cat);
+            values.push(data[cat]);
+            bgColors.push(categoryColors[cat] || '#cccccc');
+          }
+        });
+
+        Object.keys(data).forEach(cat => {
+          if (!categoriesData[type].includes(cat) && data[cat]) {
+            labels.push(cat);
+            values.push(data[cat]);
+            bgColors.push(categoryColors[cat] || '#cccccc');
+          }
+        });
+        
+        return new Chart(document.getElementById(id), {
+          type: 'doughnut',
+          data: { labels: labels, datasets: [{ data: values, backgroundColor: bgColors }] },
+          options: {
+            cutout: '70%',
+            plugins: {
+              legend: { display: false },
+              title: { display: true, text: title, font: { size: 12 } },
+              centerText: { text: total.toLocaleString() + '円' },
+              tooltip: { callbacks: { label: function(context) { return context.label + ': ' + context.parsed.toLocaleString() + '円'; } } }
+            }
+          }
+        });
+      };
+
+      historyExpenseChart = createD('historyExpenseChart', historyExpenseData, historyExpenseTotal, '支出', '支出');
+      historyIncomeChart = createD('historyIncomeChart', historyIncomeData, historyIncomeTotal, '収入', '収入');
+    }
+
+    function updateResult() {
+      const records = JSON.parse(localStorage.getItem('records')) || [];
+      if (records.length === 0) return;
+      // 貯金額は「実際にお金が動いた日」で計算する（カードは引き落とし日）
+      records.sort((a, b) => cashDate(a).localeCompare(cashDate(b)));
+      const today = todayStr();
+      const t = new Date();
+      const thirtyDaysAgoDate = new Date(t.getFullYear(), t.getMonth(), t.getDate() - 30);
+      const thirtyDaysAgo = fmtDate(thirtyDaysAgoDate.getFullYear(), thirtyDaysAgoDate.getMonth(), thirtyDaysAgoDate.getDate());
+
+      let currentSavings = 0;
+      let last30DaysBalance = 0;
+      let pendingCredit = 0; // まだ引き落とされていないカード利用額
+      const currentMonth = today.substring(0, 7);
+
+      const savingsHistory = {};
+      const monthlyExpense = {};
+      let totalMonthlyExpense = 0;
+      const monthlyIncome = {};
+      let totalMonthlyIncome = 0;
+      const monthlyBalance = {};
+
+      records.forEach(r => {
+        const amount = r.type === '収入' ? r.amount : -r.amount;
+
+        // 今月の内訳は「使った日」ベース（カードも利用日に計上）
+        if (r.date.startsWith(currentMonth)) {
+          if (r.type === '支出') {
+            monthlyExpense[r.category] = (monthlyExpense[r.category] || 0) + r.amount;
+            totalMonthlyExpense += r.amount;
+          } else {
+            monthlyIncome[r.category] = (monthlyIncome[r.category] || 0) + r.amount;
+            totalMonthlyIncome += r.amount;
+          }
+        }
+
+        // 引き落とし前のカード利用は貯金額にはまだ反映しない
+        const cDate = cashDate(r);
+        if (r.payment === 'credit' && cDate > today) {
+          pendingCredit += r.amount;
+          return;
+        }
+
+        currentSavings += amount;
+
+        let chartDate = cDate;
+        if (chartDate <= '2025-07-31') {
+          chartDate = '2025-08-01';
+        }
+
+        savingsHistory[chartDate] = currentSavings;
+
+        if (cDate >= thirtyDaysAgo && cDate <= today) {
+          last30DaysBalance += amount;
+        }
+
+        const monthKey = cDate.substring(0, 7);
+        monthlyBalance[monthKey] = (monthlyBalance[monthKey] || 0) + amount;
+      });
+
+      // 未引き落としのカード利用額と、引き落とし後の見込み残高
+      const pendingElem = document.getElementById('pending-credit');
+      pendingElem.innerHTML = pendingCredit
+        ? `💳 カード引き落とし予定: <b style="color:#ff3b30;">-${pendingCredit.toLocaleString()}円</b><br>引き落とし後の見込み: <b>${(currentSavings - pendingCredit).toLocaleString()}円</b>`
+        : '';
+      
+      document.getElementById('current-savings').innerText = currentSavings.toLocaleString();
+      const diffElem = document.getElementById('savings-diff');
+      
+      if (last30DaysBalance > 0) { 
+        diffElem.innerText = `▲ +${last30DaysBalance.toLocaleString()} (過去30日)`; 
+        diffElem.style.color = '#34c759'; 
+      }
+      else if (last30DaysBalance < 0) { 
+        diffElem.innerText = `▼ ${last30DaysBalance.toLocaleString()} (過去30日)`; 
+        diffElem.style.color = '#ff3b30'; 
+      }
+      else { 
+        diffElem.innerText = `±0 (過去30日)`; 
+        diffElem.style.color = '#888'; 
+      }
+
+      if (lineChart) lineChart.destroy();
+      if (monthlyBarChart) monthlyBarChart.destroy();
+      if (expenseChart) expenseChart.destroy();
+      if (incomeChart) incomeChart.destroy();
+
+      const dates = Object.keys(savingsHistory);
+      const monthStartIndices = [];
+      let lastMonth = '';
+      dates.forEach((d, i) => {
+        const m = d.substring(0, 7); // "YYYY-MM"
+        if (m !== lastMonth) {
+          monthStartIndices.push(i);
+          lastMonth = m;
+        }
+      });
+      
+      const len = monthStartIndices.length;
+      const displayIndices = [];
+      if (len > 0) displayIndices.push(monthStartIndices[0]);
+      if (len > 1) displayIndices.push(monthStartIndices[len - 1]);
+      if (len > 2) displayIndices.push(monthStartIndices[Math.floor((len - 1) / 2)]);
+
+      lineChart = new Chart(document.getElementById('lineChart'), {
+        type: 'line', 
+        data: { 
+          labels: dates, 
+          datasets: [{ 
+            data: Object.values(savingsHistory), 
+            borderColor: '#007aff', 
+            backgroundColor: 'rgba(0,122,255,0.1)', 
+            fill: true, 
+            tension: 0.1,
+            pointRadius: 1, 
+            pointHoverRadius: 5
+          }] 
+        },
+        options: { 
+          plugins: { legend: { display: false } }, 
+          scales: { 
+            y: { min: 0 },
+            x: {
+              grid: {
+                color: function(context) {
+                  if (monthStartIndices.includes(context.index)) {
+                    return 'rgba(0, 0, 0, 0.1)'; 
+                  }
+                  return 'transparent'; 
+                }
+              },
+              ticks: {
+                autoSkip: false, 
+                maxRotation: 0,
+                callback: function(value, index) {
+                  if (displayIndices.includes(index)) {
+                    const label = dates[index];
+                    return label.substring(2, 4) + '/' + label.substring(5, 7);
+                  }
+                  return '';
+                }
+              }
+            }
+          } 
+        }
+      });
+
+      const sortedMonths = Object.keys(monthlyBalance).filter(m => m >= '2025-08').sort();
+      const balanceData = sortedMonths.map(m => monthlyBalance[m]);
+      const maxAbs = Math.max(0, ...balanceData.map(Math.abs));
+      const yLimit = maxAbs === 0 ? 10000 : maxAbs;
+      
+      monthlyBarChart = new Chart(document.getElementById('monthlyBarChart'), {
+        type: 'bar', data: { labels: sortedMonths, datasets: [{ data: balanceData, backgroundColor: balanceData.map(v => v >= 0 ? '#007aff' : '#ff3b30') }] },
+        options: { 
+          plugins: { legend: { display: false } }, 
+          scales: { 
+            y: { max: yLimit, min: -yLimit },
+            x: {
+              ticks: {
+                autoSkip: false, // ★追加：スマホでも線を間引かせないための最強の1行！
+                maxRotation: 0,
+                callback: function(value, index, values) {
+                  const label = this.getLabelForValue(value);
+                  if (!label) return '';
+                  
+                  const len = values.length;
+                  const formattedLabel = label.substring(2, 4) + '/' + label.substring(5, 7); 
+                  
+                  if (len <= 3) return formattedLabel;
+                  
+                  if (index === 0 || index === len - 1 || index === Math.floor((len - 1) / 2)) {
+                    return formattedLabel;
+                  }
+                  
+                  return '';
+                }
+              }
+            }
+          } 
+        }
+      });
+
+      const createD = (id, data, total, type, title) => {
+        const labels = [];
+        const values = [];
+        const bgColors = [];
+
+        categoriesData[type].forEach(cat => {
+          if (data[cat]) {
+            labels.push(cat);
+            values.push(data[cat]);
+            bgColors.push(categoryColors[cat] || '#cccccc');
+          }
+        });
+
+        Object.keys(data).forEach(cat => {
+          if (!categoriesData[type].includes(cat) && data[cat]) {
+            labels.push(cat);
+            values.push(data[cat]);
+            bgColors.push(categoryColors[cat] || '#cccccc');
+          }
+        });
+        
+        return new Chart(document.getElementById(id), {
+          type: 'doughnut',
+          data: { labels: labels, datasets: [{ data: values, backgroundColor: bgColors }] },
+          options: {
+            cutout: '70%',
+            plugins: {
+              legend: { display: false },
+              title: { display: true, text: title, font: { size: 12 } },
+              centerText: { text: total.toLocaleString() + '円' },
+              tooltip: { callbacks: { label: function(context) { return context.label + ': ' + context.parsed.toLocaleString() + '円'; } } }
+            }
+          }
+        });
+      };
+
+      expenseChart = createD('expenseChart', monthlyExpense, totalMonthlyExpense, '支出', '今月の支出');
+      incomeChart = createD('incomeChart', monthlyIncome, totalMonthlyIncome, '収入', '今月の収入');
+    }
+
+    function exportData() {
+      const records = localStorage.getItem('records');
+      if (!records) return alert('保存するデータがありません');
+      const blob = new Blob([records], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `kakeibo_backup_${new Date().toISOString().split('T')[0]}.json`;
+      a.click();
+    }
+
+    function importData() {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.json';
+      input.onchange = e => {
+        const file = e.target.files[0];
+        const reader = new FileReader();
+        reader.onload = event => {
+          if (confirm('現在のデータを上書きして復元しますか？')) {
+            localStorage.setItem('records', event.target.result);
+            location.reload();
+          }
+        };
+        reader.readAsText(file);
+      };
+      input.click();
+    }
+
+    window.onload = () => {
+      updateResult();
+    };
+  </script>
+</body>
+</html>
