@@ -201,20 +201,24 @@
     <div style="display: flex; gap: 8px;">
       <div style="flex: 1;">
         <label style="font-size: 12px; color: #666;">締め日</label>
-        <select id="card-closing"></select>
+        <select id="card-closing" onchange="updateCardExample()"></select>
       </div>
       <div style="flex: 1;">
         <label style="font-size: 12px; color: #666;">引き落とし月</label>
-        <select id="card-offset">
+        <!-- 締め日のある月から数えて何ヶ月後に引き落とすか -->
+        <select id="card-offset" onchange="updateCardExample()">
+          <option value="0">当月</option>
           <option value="1">翌月</option>
           <option value="2">翌々月</option>
         </select>
       </div>
       <div style="flex: 1;">
         <label style="font-size: 12px; color: #666;">引き落とし日</label>
-        <select id="card-payday"></select>
+        <select id="card-payday" onchange="updateCardExample()"></select>
       </div>
     </div>
+    <!-- 今の設定だと何日の利用がいつ引き落とされるかの例 -->
+    <div id="card-example" class="card-summary" style="margin-top: -6px;"></div>
     <button class="secondary-btn" style="margin-top: 0;" onclick="saveCardSettings()">設定を保存</button>
 
     <hr style="border: none; border-top: 1px solid #eee; margin-top: 20px;">
@@ -318,24 +322,60 @@
     const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
     // ===== クレジットカード設定 =====
-    // closingDay / payDay: 1〜28 または 99(=末日)、payMonthOffset: 締め月から何ヶ月後に引き落とすか
+    // closingDay / payDay: 1〜28 または 99(=末日)、payMonthOffset: 締め月から何ヶ月後に引き落とすか（0=当月）
     const defaultCardSettings = { closingDay: 99, payMonthOffset: 1, payDay: 27 };
     function getCardSettings() {
       try { return { ...defaultCardSettings, ...(JSON.parse(localStorage.getItem('cardSettings')) || {}) }; }
       catch (e) { return { ...defaultCardSettings }; }
     }
 
-    // 利用日から引き落とし予定日を計算する
-    function calcWithdrawDate(dateStr) {
-      const s = getCardSettings();
+    // 利用日から締め日と引き落とし予定日を計算する（s を渡すと保存前の設定でも計算できる）
+    function calcCardDates(dateStr, s = getCardSettings()) {
       const [y, m, d] = dateStr.split('-').map(Number);
       let closeMonth = m - 1;
       const closeDay = s.closingDay === 99 ? lastDayOf(y, closeMonth) : s.closingDay;
       if (d > closeDay) closeMonth += 1; // 締め日を過ぎたら翌月締め扱い
-      const payBase = new Date(y, closeMonth + s.payMonthOffset, 1);
+      const closeBase = new Date(y, closeMonth, 1);
+      const cy = closeBase.getFullYear(), cm = closeBase.getMonth();
+      const closeDate = fmtDate(cy, cm, s.closingDay === 99 ? lastDayOf(cy, cm) : s.closingDay);
+      const payBase = new Date(cy, cm + s.payMonthOffset, 1); // 締め月 + 0(当月)/1(翌月)/2(翌々月)
       const py = payBase.getFullYear(), pm = payBase.getMonth();
       const pd = s.payDay === 99 ? lastDayOf(py, pm) : Math.min(s.payDay, lastDayOf(py, pm));
-      return fmtDate(py, pm, pd);
+      return { closeDate, withdrawDate: fmtDate(py, pm, pd) };
+    }
+    const calcWithdrawDate = dateStr => calcCardDates(dateStr).withdrawDate;
+
+    // 設定画面の選択中の値を読む
+    function readCardSettingsUI() {
+      return {
+        closingDay: parseInt(document.getElementById('card-closing').value, 10),
+        payMonthOffset: parseInt(document.getElementById('card-offset').value, 10),
+        payDay: parseInt(document.getElementById('card-payday').value, 10)
+      };
+    }
+
+    // 「当月」なのに引き落とし日が締め日以前だと、締める前に引き落とされてしまうのでNG
+    const isInvalidCardSettings = s =>
+      s.payMonthOffset === 0 && (s.payDay === 99 ? 31 : s.payDay) <= (s.closingDay === 99 ? 31 : s.closingDay);
+
+    // 設定の下に「締め日当日の利用」と「締め日翌日の利用」の例を表示
+    function updateCardExample() {
+      const s = readCardSettingsUI();
+      const elem = document.getElementById('card-example');
+      if (isInvalidCardSettings(s)) {
+        elem.innerHTML = '⚠️ 「当月」の場合は、引き落とし日を締め日より後にしてください';
+        return;
+      }
+      const t = new Date();
+      const closeDay = s.closingDay === 99 ? lastDayOf(t.getFullYear(), t.getMonth()) : s.closingDay;
+      const md = str => `${Number(str.substring(5, 7))}/${Number(str.substring(8))}`;
+      const line = dateStr => {
+        const r = calcCardDates(dateStr, s);
+        return `${md(dateStr)}の利用 → ${md(r.closeDate)}締め → <b>${md(r.withdrawDate)}引き落とし</b>`;
+      };
+      const onClose = fmtDate(t.getFullYear(), t.getMonth(), closeDay);
+      const nextDay = new Date(t.getFullYear(), t.getMonth(), closeDay + 1);
+      elem.innerHTML = `例）${line(onClose)}<br>　　${line(fmtDate(nextDay.getFullYear(), nextDay.getMonth(), nextDay.getDate()))}`;
     }
 
     // お金が実際に出ていく日（カードは引き落とし日、それ以外は入力日）
@@ -349,14 +389,12 @@
       document.getElementById('card-closing').value = s.closingDay;
       document.getElementById('card-offset').value = s.payMonthOffset;
       document.getElementById('card-payday').value = s.payDay;
+      updateCardExample();
     }
 
     function saveCardSettings() {
-      const s = {
-        closingDay: parseInt(document.getElementById('card-closing').value, 10),
-        payMonthOffset: parseInt(document.getElementById('card-offset').value, 10),
-        payDay: parseInt(document.getElementById('card-payday').value, 10)
-      };
+      const s = readCardSettingsUI();
+      if (isInvalidCardSettings(s)) return alert('「当月」の場合は、引き落とし日を締め日より後にしてください');
       localStorage.setItem('cardSettings', JSON.stringify(s));
       // 既存のカード記録の引き落とし日を新しい設定で再計算するか確認
       if (confirm('設定を保存しました。\n既存のクレジットカード記録の引き落とし日も再計算しますか？')) {
